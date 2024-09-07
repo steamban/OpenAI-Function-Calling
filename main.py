@@ -77,10 +77,37 @@ def get_current_weather(city):
     else:
         return f"Error fetching weather data: {response.status_code}"
 
+# Function for Travel Advisory API
+def get_travel_advisory(city, country):
+    if not city:
+        return "Error: City is required for travel advisory."
+    if not country:
+        return "Error: Country is required for travel advisory."
+    
+    # This is a dummy function that simulates an API call
+    advisories = {
+        "low": "Exercise normal precautions",
+        "medium": "Exercise increased caution",
+        "high": "Reconsider travel",
+        "extreme": "Do not travel"
+    }
+    
+    # Simulate some logic based on the city and country
+    risk_level = hash(f"{city}{country}") % 4
+    risk_levels = list(advisories.keys())
+    
+    advisory = f"Travel Advisory for {city}, {country}:\n"
+    advisory += f"Risk Level: {risk_levels[risk_level]}\n"
+    advisory += f"Advisory: {advisories[risk_levels[risk_level]]}"
+    
+    return advisory
+
 # Create an assistant
 assistant = openai.beta.assistants.create(
-    name="Weather Assistant",
-    instructions="You are a helpful assistant that can provide current weather information for cities.",
+    name="Travel and Weather Assistant",
+    instructions="""You are a helpful assistant that can provide current weather information and travel advisories for cities and countries.
+    If a user asks for weather information or a travel advisory without providing all necessary information (city for weather, city and country for travel advisory),
+    politely ask for the missing information before making the API call. For weather queries, only the city is required. For travel advisories, both city and country are required.""",
     model="gpt-4-1106-preview",
     tools=[{
         "type": "function",
@@ -96,6 +123,27 @@ assistant = openai.beta.assistants.create(
                     }
                 },
                 "required": ["city"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_travel_advisory",
+            "description": "Get the travel advisory for a given city and country",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "The name of the city"
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": "The name of the country"
+                    }
+                },
+                "required": ["city", "country"]
             }
         }
     }]
@@ -132,21 +180,34 @@ def chat_with_assistant(user_input):
                 for tool_call in run.required_action.submit_tool_outputs.tool_calls:
                     try:
                         arguments = json.loads(tool_call.function.arguments)
-                        city = arguments.get("city")
-                        if city:
-                            weather = get_current_weather(city)
+                        if tool_call.function.name == "get_current_weather":
+                            city = arguments.get("city")
+                            if city:
+                                weather = get_current_weather(city)
+                                openai.beta.threads.runs.submit_tool_outputs(
+                                    thread_id=thread.id,
+                                    run_id=run.id,
+                                    tool_outputs=[{
+                                        "tool_call_id": tool_call.id,
+                                        "output": str(weather)
+                                    }]
+                                )
+                        elif tool_call.function.name == "get_travel_advisory":
+                            city = arguments.get("city")
+                            country = arguments.get("country")
+                            advisory = get_travel_advisory(city, country)
                             openai.beta.threads.runs.submit_tool_outputs(
                                 thread_id=thread.id,
                                 run_id=run.id,
                                 tool_outputs=[{
                                     "tool_call_id": tool_call.id,
-                                    "output": str(weather)
+                                    "output": str(advisory)
                                 }]
                             )
                     except json.JSONDecodeError:
                         pass
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Error in tool call: {str(e)}")
 
             elif run.status == "completed":
                 break
@@ -176,11 +237,11 @@ def chat_with_assistant(user_input):
         return f"An error occurred: {str(e)}. Please try again."
 
 # Main chat loop
-print("Weather Assistant: Hello! How can I help you today?")
+print("Travel and Weather Assistant: Hello! How can I help you today?")
 while True:
     user_input = input("You: ")
     if user_input.lower() in ["exit", "quit", "bye"]:
-        print("Weather Assistant: Goodbye!")
+        print("Travel and Weather Assistant: Goodbye!")
         break
     response = chat_with_assistant(user_input)
-    print("Weather Assistant:", response)
+    print("Travel and Weather Assistant:", response)
