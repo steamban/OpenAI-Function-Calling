@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 import os
 import json
 import time
+import random
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -102,12 +104,59 @@ def get_travel_advisory(city, country):
     
     return advisory
 
+# New function for handling investments
+def process_investment(amount=None, payment_mode=None, wire_id=None, transaction_date=None):
+    if amount is None:
+        return "Please provide the amount you'd like to invest."
+    
+    if payment_mode is None:
+        return "Please choose a payment mode: ACH or wire transfer."
+    
+    if payment_mode.lower() not in ["ach", "wire transfer"]:
+        return "Invalid payment mode. Please choose either ACH or wire transfer."
+    
+    if payment_mode.lower() == "wire transfer" and wire_id is None:
+        return "Please provide the wire ID for your wire transfer."
+    
+    if transaction_date is None:
+        return "Please provide the transaction date in YYYY-MM-DD format."
+    
+    try:
+        date = datetime.strptime(transaction_date, "%Y-%m-%d")
+        if date > datetime.now():
+            return "The transaction date cannot be in the future. Please provide a valid date."
+    except ValueError:
+        return "Invalid date format. Please use YYYY-MM-DD."
+    
+    # Summarize the investment details
+    summary = f"Investment Summary:\n"
+    summary += f"Amount: ${amount}\n"
+    summary += f"Payment Mode: {payment_mode}\n"
+    if payment_mode.lower() == "wire transfer":
+        summary += f"Wire ID: {wire_id}\n"
+    summary += f"Transaction Date: {transaction_date}\n"
+    
+    return summary
+
+# Function to simulate investment transaction
+def process_transaction():
+    # Simulate a transaction with 80% success rate
+    return random.random() < 0.8
+
 # Create an assistant
 assistant = openai.beta.assistants.create(
-    name="Travel and Weather Assistant",
-    instructions="""You are a helpful assistant that can provide current weather information and travel advisories for cities and countries.
-    If a user asks for weather information or a travel advisory without providing all necessary information (city for weather, city and country for travel advisory),
-    politely ask for the missing information before making the API call. For weather queries, only the city is required. For travel advisories, both city and country are required.""",
+    name="Weather, Travel, and Investment Assistant",
+    instructions="""You are a helpful assistant that can provide current weather information, travel advisories, and process investments for the company you represent. 
+    For weather and travel queries, ask for missing information before making API calls. For investments, follow these steps:
+    1. Ask for the investment amount.
+    2. Ask for the payment mode (ACH or wire transfer).
+    3. If wire transfer, ask for the wire ID.
+    4. Ask for the transaction date (YYYY-MM-DD format, not in the future).
+    5. Summarize the investment details and ask for confirmation.
+    6. Process the transaction and inform the user of the result.
+    7. If successful, congratulate the user. If failed, offer to retry.
+    At any point, if the user wants to exit the investment process, ask for confirmation before stopping.
+    """,
     model="gpt-4-1106-preview",
     tools=[{
         "type": "function",
@@ -146,12 +195,54 @@ assistant = openai.beta.assistants.create(
                 "required": ["city", "country"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "process_investment",
+            "description": "Process an investment transaction",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "number",
+                        "description": "The amount to invest"
+                    },
+                    "payment_mode": {
+                        "type": "string",
+                        "enum": ["ACH", "wire transfer"],
+                        "description": "The mode of payment"
+                    },
+                    "wire_id": {
+                        "type": "string",
+                        "description": "The wire ID for wire transfers"
+                    },
+                    "transaction_date": {
+                        "type": "string",
+                        "description": "The date of the transaction (YYYY-MM-DD)"
+                    }
+                },
+                "required": ["amount", "payment_mode", "transaction_date"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "process_transaction",
+            "description": "Simulate processing the investment transaction",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
     }]
 )
 
 # Create a thread
 thread = openai.beta.threads.create()
 
+# Update the chat_with_assistant function
 def chat_with_assistant(user_input):
     try:
         # Add the user's message to the thread
@@ -204,6 +295,26 @@ def chat_with_assistant(user_input):
                                     "output": str(advisory)
                                 }]
                             )
+                        elif tool_call.function.name == "process_investment":
+                            result = process_investment(**arguments)
+                            openai.beta.threads.runs.submit_tool_outputs(
+                                thread_id=thread.id,
+                                run_id=run.id,
+                                tool_outputs=[{
+                                    "tool_call_id": tool_call.id,
+                                    "output": str(result)
+                                }]
+                            )
+                        elif tool_call.function.name == "process_transaction":
+                            result = process_transaction()
+                            openai.beta.threads.runs.submit_tool_outputs(
+                                thread_id=thread.id,
+                                run_id=run.id,
+                                tool_outputs=[{
+                                    "tool_call_id": tool_call.id,
+                                    "output": str(result)
+                                }]
+                            )
                     except json.JSONDecodeError:
                         pass
                     except Exception as e:
@@ -237,11 +348,11 @@ def chat_with_assistant(user_input):
         return f"An error occurred: {str(e)}. Please try again."
 
 # Main chat loop
-print("Travel and Weather Assistant: Hello! How can I help you today?")
+print("Weather, Travel, and Investment Assistant: Hello! How can I help you today?")
 while True:
     user_input = input("You: ")
     if user_input.lower() in ["exit", "quit", "bye"]:
-        print("Travel and Weather Assistant: Goodbye!")
+        print("Weather, Travel, and Investment Assistant: Goodbye!")
         break
     response = chat_with_assistant(user_input)
-    print("Travel and Weather Assistant:", response)
+    print("Weather, Travel, and Investment Assistant:", response)
