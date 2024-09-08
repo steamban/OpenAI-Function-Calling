@@ -255,9 +255,6 @@ def get_relevant_documents(query_text: str):
         connection=os.getenv('PGVECTOR_CONNECTION_STRING'),
         collection_name='vectorstore') 
     results = pgvector_store.similarity_search_with_relevance_scores(query=query_text, k=6)
-    print()
-    print(f"Context: {results}")
-    print()
     return results
 
 # Create a thread
