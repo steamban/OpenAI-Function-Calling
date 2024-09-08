@@ -6,6 +6,8 @@ import json
 import time
 import random
 from datetime import datetime
+from langchain_postgres.vectorstores import PGVector
+from langchain_openai import OpenAIEmbeddings
 
 # Load environment variables
 load_dotenv()
@@ -145,8 +147,12 @@ def process_transaction():
 
 # Create an assistant
 assistant = openai.beta.assistants.create(
-    name="Weather, Travel, and Investment Assistant",
-    instructions="""You are a helpful assistant that can provide current weather information, travel advisories, and process investments for the company you represent. 
+    name="Personal Assistant",
+    instructions="""
+    You are a helpful assistant with access to a knowledge base. 
+    When answering questions, first retrieve relevant information from the knowledge base,
+    then use this information to provide accurate and helpful responses.You also can provide 
+    current weather information, travel advisories, and process investments for the company you represent. 
     For weather and travel queries, ask for missing information before making API calls. For investments, follow these steps:
     1. Ask for the investment amount.
     2. Ask for the payment mode (ACH or wire transfer).
@@ -159,6 +165,9 @@ assistant = openai.beta.assistants.create(
     """,
     model="gpt-4-1106-preview",
     tools=[{
+        "type": "file_search",
+    },
+    {
         "type": "function",
         "function": {
             "name": "get_current_weather",
@@ -239,17 +248,36 @@ assistant = openai.beta.assistants.create(
     }]
 )
 
+def get_relevant_documents(query_text: str):
+    embeddings = OpenAIEmbeddings()
+    pgvector_store = PGVector(
+        embeddings=embeddings, 
+        connection=os.getenv('PGVECTOR_CONNECTION_STRING'),
+        collection_name='vectorstore') 
+    results = pgvector_store.similarity_search_with_relevance_scores(query=query_text, k=6)
+    print()
+    print(f"Context: {results}")
+    print()
+    return results
+
 # Create a thread
 thread = openai.beta.threads.create()
 
 # Update the chat_with_assistant function
 def chat_with_assistant(user_input):
     try:
-        # Add the user's message to the thread
+
+        # Retrieve relevant documents
+        relevant_docs = get_relevant_documents(user_input)
+
+        # Combine all relevant documents into a single message
+        combined_context = "\n\n".join([f"Relevant information: {doc}" for doc in relevant_docs])
+
+        # Add the user's message and the combined context to the thread
         openai.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
-            content=user_input
+            content=f"{user_input}\n\n{combined_context}"
         )
 
         # Run the assistant
